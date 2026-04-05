@@ -47,8 +47,11 @@ function Reveal({ children, delay, style }: { children: React.ReactNode; delay?:
 // NAV
 // ══════════════════════════════════════════════════════════════════════════
 
+type MeState = { loggedIn: boolean; email: string | null; firstName: string | null } | null
+
 function Nav() {
   const [scrolled, setScrolled] = useState(false)
+  const [me, setMe] = useState<MeState>(null)
   const { open: openModal } = useAuthModal()
 
   useEffect(() => {
@@ -57,15 +60,15 @@ function Nav() {
     return () => window.removeEventListener('scroll', h)
   }, [])
 
-  async function handleEssaiGratuit() {
-    const res = await fetch('/api/me')
-    const me = await res.json()
-    if (me.loggedIn && me.isPaid) {
-      window.location.href = '/dashboard'
-    } else {
-      openModal()
-    }
-  }
+  useEffect(() => {
+    fetch('/api/me').then(r => r.json()).then(setMe)
+  }, [])
+
+  const initial = me?.firstName
+    ? me.firstName[0].toUpperCase()
+    : me?.email
+    ? me.email[0].toUpperCase()
+    : '?'
 
   return (
     <nav style={{
@@ -93,10 +96,32 @@ function Nav() {
           ))}
         </div>
 
-        {/* CTA */}
-        <button onClick={handleEssaiGratuit} style={{ flexShrink: 0, padding: '8px 18px', borderRadius: 7, background: 'linear-gradient(135deg, #C4A882, #8B6F47)', color: '#0A0A0A', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-outfit)', border: 'none', cursor: 'pointer' }}>
-          Essai gratuit
-        </button>
+        {/* Auth CTAs */}
+        {me?.loggedIn ? (
+          /* Logged in — avatar + Mon espace */
+          <a href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', flexShrink: 0 }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #C4A882, #8B6F47)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-dm-mono)', fontSize: 13, fontWeight: 600, color: '#0A0A0A' }}>
+              {initial}
+            </div>
+            <span style={{ fontFamily: 'var(--font-outfit)', fontSize: 13, fontWeight: 600, color: '#C4A882' }}>Mon espace</span>
+          </a>
+        ) : (
+          /* Logged out — Se connecter + Essai gratuit */
+          <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+            <button
+              onClick={openModal}
+              style={{ padding: '8px 18px', borderRadius: 50, background: 'none', border: '1px solid rgba(196,168,130,0.5)', color: '#C4A882', fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-outfit)', cursor: 'pointer' }}
+            >
+              Se connecter
+            </button>
+            <button
+              onClick={openModal}
+              style={{ padding: '8px 18px', borderRadius: 50, background: 'linear-gradient(135deg, #C4A882, #8B6F47)', border: 'none', color: '#0A0A0A', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-outfit)', cursor: 'pointer' }}
+            >
+              Essai gratuit
+            </button>
+          </div>
+        )}
       </div>
     </nav>
   )

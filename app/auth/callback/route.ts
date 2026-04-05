@@ -9,18 +9,24 @@ export async function GET(req: NextRequest) {
   if (code) {
     const supabase = await createSupabaseServerClient()
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+
     if (!error && data.session) {
       const userId = data.session.user.id
 
-      const { data: plans } = await supabaseAdmin
+      const { data: subscriber } = await supabaseAdmin
         .from('subscribers')
-        .select('plan')
+        .select('plan, active, first_name')
         .eq('user_id', userId)
-        .eq('active', true)
+        .order('active', { ascending: false })
         .limit(1)
+        .maybeSingle()
 
-      const hasPlan = !!(plans && plans.length > 0)
+      const hasProfile = !!(subscriber?.first_name)
+      const hasPlan = !!(subscriber?.active && subscriber?.plan)
 
+      if (!hasProfile) {
+        return NextResponse.redirect(`${origin}/onboarding`)
+      }
       return NextResponse.redirect(`${origin}${hasPlan ? '/dashboard' : '/pricing'}`)
     }
   }

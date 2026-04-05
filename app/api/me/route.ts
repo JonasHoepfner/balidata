@@ -7,22 +7,25 @@ export async function GET() {
   const { data: { session } } = await supabase.auth.getSession()
 
   if (!session) {
-    return NextResponse.json({ loggedIn: false, isPaid: false, plan: null, email: null })
+    return NextResponse.json({ loggedIn: false, isPaid: false, plan: null, email: null, firstName: null, avatarType: null })
   }
 
-  const { data: plans } = await supabaseAdmin
+  const { data: subscriber } = await supabaseAdmin
     .from('subscribers')
-    .select('plan')
+    .select('plan, active, first_name, avatar_type')
     .eq('user_id', session.user.id)
-    .eq('active', true)
+    .order('active', { ascending: false })
     .limit(1)
+    .maybeSingle()
 
-  const activePlan = plans?.[0] ?? null
+  const isPaid = !!(subscriber?.active && subscriber?.plan)
 
   return NextResponse.json({
     loggedIn: true,
-    isPaid: !!activePlan,
-    plan: activePlan?.plan ?? null,
+    isPaid,
+    plan: isPaid ? (subscriber?.plan ?? null) : null,
     email: session.user.email ?? null,
+    firstName: subscriber?.first_name ?? null,
+    avatarType: subscriber?.avatar_type ?? null,
   })
 }

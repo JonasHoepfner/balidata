@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
 
-type Me = { loggedIn: boolean; isPaid: boolean; plan: string | null; email: string | null }
+type Me = { loggedIn: boolean; isPaid: boolean; plan: string | null; email: string | null; firstName: string | null; avatarType: string | null }
 
 type Report = {
   id: string
@@ -109,8 +109,15 @@ export default function Dashboard() {
       <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, borderBottom: '1px solid #1A1A1A', background: 'rgba(10,10,10,0.92)', backdropFilter: 'blur(12px)', padding: '0 32px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 13, color: '#C4A882', letterSpacing: '0.12em' }}>BALIDATA</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          {me?.email && (
-            <span style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 11, color: '#4A4540' }}>{me.email}</span>
+          {me && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'linear-gradient(135deg, #C4A882, #8B6F47)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-dm-mono)', fontSize: 12, fontWeight: 600, color: '#0A0A0A' }}>
+                {me.firstName ? me.firstName[0].toUpperCase() : me.email ? me.email[0].toUpperCase() : '?'}
+              </div>
+              <span style={{ fontFamily: 'var(--font-outfit)', fontSize: 13, color: '#8A8178' }}>
+                {me.firstName ?? me.email}
+              </span>
+            </div>
           )}
           <button onClick={handleLogout} style={{ background: 'none', border: '1px solid #2A2A2A', borderRadius: 7, padding: '7px 16px', color: '#6A6158', fontSize: 12, cursor: 'pointer' }}>
             Se déconnecter

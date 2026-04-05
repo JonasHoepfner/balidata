@@ -26,7 +26,7 @@ export async function middleware(req: NextRequest) {
 
   const { pathname } = req.nextUrl
 
-  const isProtected = pathname.startsWith('/dashboard') || pathname.startsWith('/rapport') || pathname.startsWith('/pricing')
+  const isProtected = pathname.startsWith('/dashboard') || pathname.startsWith('/rapport') || pathname.startsWith('/pricing') || pathname.startsWith('/onboarding')
 
   if (isProtected && !session) {
     const loginUrl = req.nextUrl.clone()
@@ -38,5 +38,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/rapport/:path*', '/pricing/:path*', '/pricing'],
+  matcher: ['/dashboard/:path*', '/rapport/:path*', '/pricing/:path*', '/pricing', '/onboarding/:path*', '/onboarding'],
 }
