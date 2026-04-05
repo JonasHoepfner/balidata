@@ -9,9 +9,33 @@ function getStripe() {
   return new Stripe(key, { apiVersion: '2026-03-25.dahlia' })
 }
 
+const PLANS = {
+  once: {
+    mode: 'payment' as const,
+    name: 'BaliData — Rapport complet',
+    description: 'Prix exacts, P25/P75, 3 comparables GPS, 3 scénarios de rendement, zonage, export PDF',
+    unit_amount: 2900,
+  },
+  monthly: {
+    mode: 'subscription' as const,
+    name: 'BaliData Investisseur — Mensuel',
+    description: 'Analyses illimitées, dashboard carte, historique marché, alertes prix',
+    unit_amount: 3900,
+    recurring: { interval: 'month' as const },
+  },
+  b2b: {
+    mode: 'subscription' as const,
+    name: 'BaliData Partenaire B2B — Mensuel',
+    description: 'Widget intégrable, marque blanche, accès API, support dédié',
+    unit_amount: 19900,
+    recurring: { interval: 'month' as const },
+  },
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
-  const plan: 'once' | 'monthly' = body.plan === 'monthly' ? 'monthly' : 'once'
+  const planKey = (body.plan ?? 'once') as keyof typeof PLANS
+  const plan = PLANS[planKey] ?? PLANS.once
 
   const stripe = getStripe()
   if (!stripe) {
@@ -22,25 +46,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const isMonthly = plan === 'monthly'
-
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
-      mode: isMonthly ? 'subscription' : 'payment',
+      mode: plan.mode,
       line_items: [
         {
           price_data: {
             currency: 'usd',
-            product_data: {
-              name: isMonthly ? 'BaliData Pro — Accès mensuel' : 'BaliData — Rapport complet',
-              description: isMonthly
-                ? 'Analyses illimitées, prix exacts, comparables GPS, export PDF'
-                : 'Rapport unique : prix exact, P25/P75, 3 comparables proches, export PDF',
-            },
-            ...(isMonthly
-              ? { recurring: { interval: 'month' }, unit_amount: 3900 }
-              : { unit_amount: 2900 }
-            ),
+            product_data: { name: plan.name, description: plan.description },
+            unit_amount: plan.unit_amount,
+            ...(plan.mode === 'subscription' && 'recurring' in plan
+              ? { recurring: plan.recurring }
+              : {}),
           },
           quantity: 1,
         },
