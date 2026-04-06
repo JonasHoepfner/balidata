@@ -20,10 +20,12 @@ export type Listing = {
 
 export type ZonageFeature = {
   properties: {
-    zone_type: string
-    zone_label: string
+    zone_type:      string
+    zone_label:     string
+    zone_color:     string
     str_compatible: boolean
-    name?: string
+    str_status:     'authorized' | 'conditional' | 'restricted'
+    name?:          string
   }
 }
 
@@ -105,15 +107,16 @@ function listingsToGeoJSON(listings: Listing[]): GeoJSON.FeatureCollection {
 }
 
 // ── Zone color expression ──────────────────────────────────────────────────
-// Uses Mapbox match expression on zone_type property
+// Uses zone_color property set by filter-zonage.js
 
 const ZONE_COLOR_EXPR: mapboxgl.Expression = [
-  'match', ['get', 'zone_type'],
-  ['farmland', 'orchard', 'meadow', 'grass', 'greenfield'], '#4CAF50',
-  ['commercial', 'retail'], '#FF8C00',
-  ['brownfield', 'construction'], '#888888',
-  'beach', '#4A9FE8',
-  'residential', '#FFD700',
+  'match', ['get', 'zone_color'],
+  'tourist',      '#FF69B4',
+  'agricultural', '#4CAF50',
+  'residential',  '#FFD700',
+  'commercial',   '#FF8C00',
+  'beach',        '#4A9FE8',
+  'brownfield',   '#888888',
   '#666666',
 ] as mapboxgl.Expression
 
@@ -325,11 +328,24 @@ export default function MapboxMap({ listings, filters, layers, onListingClick, o
         if (!e.features?.length) return
         const p = e.features[0].properties
         if (!p) return
-        const strTypes = ['commercial', 'retail', 'beach']
-        const strCompatible = strTypes.includes(p.zone_type)
+        // STR status from zone_color (set by filter-zonage.js)
+        // tourist / commercial / beach → autorisé
+        // residential (non-coastal) → conditionnel
+        // agricultural / brownfield / construction → restreint
+        const strAuthorized   = ['commercial', 'beach', 'tourist'].includes(p.zone_color)
+        const strConditional  = p.zone_color === 'residential'
+        const strStatus: 'authorized' | 'conditional' | 'restricted' =
+          strAuthorized ? 'authorized' : strConditional ? 'conditional' : 'restricted'
         onSidebarRef.current({
           type: 'zone',
-          feature: { properties: { zone_type: p.zone_type, zone_label: p.zone_label ?? p.zone_type, str_compatible: strCompatible, name: p.name } },
+          feature: { properties: {
+            zone_type:      p.zone_type,
+            zone_label:     p.zone_label ?? p.zone_type,
+            zone_color:     p.zone_color ?? 'residential',
+            str_compatible: strAuthorized,
+            str_status:     strStatus,
+            name:           p.name,
+          }},
         })
       })
 

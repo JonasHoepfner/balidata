@@ -12,37 +12,40 @@ const OUT_PATH = path.join(__dirname, '..', 'public', 'data', 'demo-listings.jso
 // ── Zone definitions ───────────────────────────────────────────────────────
 // Chaque zone a une bbox, un poids de densité, et une fourchette de prix
 
-// Bbox corrigée : lon >= 115.125 pour éviter les listings en mer
+// Bbox stricte excluant toute zone maritime (lon min 115.118)
 const ZONES = [
   {
     name: 'Canggu',
-    weight: 40,          // ~40% des listings
-    lon: [115.130, 115.158],
-    lat: [-8.668, -8.638],
+    weight: 40,
+    lon: [115.130, 115.175],
+    lat: [-8.665, -8.635],
     priceRange: [150, 450],
   },
   {
     name: 'Berawa',
-    weight: 30,          // ~30%
-    lon: [115.152, 115.185],
-    lat: [-8.672, -8.640],
+    weight: 30,
+    lon: [115.155, 115.185],
+    lat: [-8.655, -8.630],
     priceRange: [120, 380],
   },
   {
     name: 'Batu Bolong',
-    weight: 20,          // ~20%
-    lon: [115.130, 115.150],
-    lat: [-8.672, -8.655],
+    weight: 20,
+    lon: [115.138, 115.160],
+    lat: [-8.660, -8.645],
     priceRange: [100, 300],
   },
   {
     name: 'Pererenan',
-    weight: 10,          // ~10% — plus clairsemé
-    lon: [115.125, 115.135],
-    lat: [-8.660, -8.630],
+    weight: 10,
+    lon: [115.118, 115.145],
+    lat: [-8.680, -8.655],
     priceRange: [80, 220],
   },
 ]
+
+// Longitude minimale absolue — en dessous = mer
+const LON_MIN = 115.118
 
 // ── Name parts ────────────────────────────────────────────────────────────
 
@@ -85,8 +88,15 @@ const listings = []
 for (let i = 0; i < 150; i++) {
   const zone = weightedZone()
 
-  const latitude    = randBetween(zone.lat[0], zone.lat[1])
-  const longitude   = randBetween(zone.lon[0], zone.lon[1])
+  // Reject and regenerate if longitude falls in the sea
+  let latitude, longitude
+  let attempts = 0
+  do {
+    latitude  = randBetween(zone.lat[0], zone.lat[1])
+    longitude = randBetween(zone.lon[0], zone.lon[1])
+    attempts++
+  } while (longitude < LON_MIN && attempts < 20)
+  if (longitude < LON_MIN) longitude = LON_MIN + 0.002 // hard clamp
   const bedrooms    = randInt(1, 5)
   const priceMin    = zone.priceRange[0] + (bedrooms - 1) * 30
   const priceMax    = Math.min(zone.priceRange[1] + (bedrooms - 1) * 40, 500)

@@ -31,11 +31,12 @@ function percentile(sorted: number[], p: number) {
 // ── Zone legend data ──────────────────────────────────────────────────────
 
 const ZONE_LEGEND = [
-  { color: '#4CAF50', label: 'Zone agricole',       types: ['farmland', 'orchard', 'meadow', 'grass'] },
-  { color: '#FFD700', label: 'Résidentiel',          types: ['residential'] },
-  { color: '#FF8C00', label: 'Commercial / Commerce', types: ['commercial', 'retail'] },
-  { color: '#4A9FE8', label: 'Zone côtière',         types: ['beach'] },
-  { color: '#888888', label: 'Terrain nu',           types: ['brownfield', 'construction'] },
+  { color: '#FF69B4', label: 'Zone touristique STR ✓' },
+  { color: '#FF8C00', label: 'Commercial / Commerce ✓' },
+  { color: '#4A9FE8', label: 'Zone côtière ✓' },
+  { color: '#FFD700', label: 'Résidentiel ⚠ conditionnel' },
+  { color: '#4CAF50', label: 'Zone agricole ✗' },
+  { color: '#888888', label: 'Terrain nu ✗' },
 ]
 
 // ── Toggle ────────────────────────────────────────────────────────────────
@@ -324,22 +325,34 @@ function SidebarPanel({ content }: { content: SidebarContent }) {
 
   if (content.type === 'zone') {
     const p = content.feature.properties
-    const strCompatible = ['commercial', 'retail', 'beach'].includes(p.zone_type)
+    const status = p.str_status ?? (p.str_compatible ? 'authorized' : 'restricted')
+
+    const badgeCfg = {
+      authorized:  { bg: 'rgba(74,222,128,0.08)',   border: 'rgba(74,222,128,0.25)',   color: '#4ADE80',  text: 'STR Autorisé ✓' },
+      conditional: { bg: 'rgba(251,146,60,0.08)',    border: 'rgba(251,146,60,0.35)',   color: '#FB923C',  text: 'STR Conditionnel ⚠' },
+      restricted:  { bg: 'rgba(248,113,113,0.08)',   border: 'rgba(248,113,113,0.25)',  color: '#F87171',  text: 'STR Restreint ✗' },
+    }[status]
+
     return (
       <div>
         <div style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 9, color: '#6A6158', letterSpacing: '0.1em', marginBottom: 10 }}>ZONAGE</div>
         {p.name && <div style={{ fontFamily: 'var(--font-outfit)', fontSize: 14, fontWeight: 600, color: '#F0EAE2', marginBottom: 8 }}>{p.name}</div>}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+
+        <div style={{ marginBottom: 12 }}>
           <span style={{
-            padding: '4px 12px', borderRadius: 6,
+            display: 'inline-block', padding: '4px 12px', borderRadius: 6,
             fontFamily: 'var(--font-dm-mono)', fontSize: 10, letterSpacing: '0.06em',
-            background: strCompatible ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)',
-            border: `1px solid ${strCompatible ? 'rgba(74,222,128,0.25)' : 'rgba(248,113,113,0.25)'}`,
-            color: strCompatible ? '#4ADE80' : '#F87171',
+            background: badgeCfg.bg, border: `1px solid ${badgeCfg.border}`, color: badgeCfg.color,
           }}>
-            {strCompatible ? 'STR Autorisé ✓' : 'STR Restreint ✗'}
+            {badgeCfg.text}
           </span>
+          {status === 'conditional' && (
+            <div style={{ fontFamily: 'var(--font-outfit)', fontSize: 10, color: '#FB923C', marginTop: 6, lineHeight: 1.5 }}>
+              Vérification recommandée
+            </div>
+          )}
         </div>
+
         <div style={{ background: '#0A0A0A', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
           <div style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 8, color: '#4A4540', letterSpacing: '0.1em', marginBottom: 3 }}>TYPE</div>
           <div style={{ fontFamily: 'var(--font-outfit)', fontSize: 13, color: '#C8BFB5' }}>{p.zone_label ?? p.zone_type}</div>
