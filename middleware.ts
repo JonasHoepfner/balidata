@@ -23,10 +23,13 @@ export async function middleware(req: NextRequest) {
   )
 
   const { data: { session } } = await supabase.auth.getSession()
-
   const { pathname } = req.nextUrl
 
-  const isProtected = pathname.startsWith('/dashboard') || pathname.startsWith('/rapport') || pathname.startsWith('/pricing') || pathname.startsWith('/onboarding')
+  const isProtected =
+    pathname.startsWith('/dashboard') ||
+    pathname.startsWith('/rapport') ||
+    pathname.startsWith('/pricing') ||
+    pathname.startsWith('/onboarding')
 
   if (isProtected && !session) {
     const loginUrl = req.nextUrl.clone()
@@ -34,9 +37,20 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
+  // Admin plan bypass is handled at the API/page level via isAdmin flag from /api/me
+  // (checking is_admin in middleware would require a service-role DB call on every request)
+
   return res
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/rapport/:path*', '/pricing/:path*', '/pricing', '/onboarding/:path*', '/onboarding'],
+  matcher: [
+    '/dashboard',
+    '/dashboard/:path*',
+    '/rapport/:path*',
+    '/pricing',
+    '/pricing/:path*',
+    '/onboarding',
+    '/onboarding/:path*',
+  ],
 }

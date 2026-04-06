@@ -597,12 +597,13 @@ function SeasonalityChart() {
 
 // ── Results ────────────────────────────────────────────────────────────────
 
-function Results({ result, onReset, userNightlyPrice, acquisitionPrice, formDataKey }: {
+function Results({ result, onReset, userNightlyPrice, acquisitionPrice, formDataKey, directCheckout }: {
   result: ComparablesResult
   onReset: () => void
   userNightlyPrice: number | null
   acquisitionPrice: number | null
   formDataKey?: string
+  directCheckout?: boolean
 }) {
   const [stripeLoading, setStripeLoading] = useState(false)
   const { open: openModal } = useAuthModal()
@@ -631,11 +632,24 @@ function Results({ result, onReset, userNightlyPrice, acquisitionPrice, formData
   async function handleCheckout() {
     setStripeLoading(true)
     try {
+      if (directCheckout) {
+        // Dashboard mode: user is already authenticated, go straight to Stripe
+        const res = await fetch('/api/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan: 'once' }),
+        })
+        const data = await res.json()
+        if (data.error) { alert(data.error); return }
+        if (data.url) window.location.href = data.url
+        return
+      }
+
+      // Standard flow: check auth first
       const meRes = await fetch('/api/me')
       const me = await meRes.json()
 
       if (!me.loggedIn) {
-        // Save form context so user lands back after login
         if (formDataKey) sessionStorage.setItem('pendingCheckout', formDataKey)
         openModal()
         return
@@ -877,7 +891,7 @@ function Results({ result, onReset, userNightlyPrice, acquisitionPrice, formData
 
 // ── Main AnalysisForm ──────────────────────────────────────────────────────
 
-export function AnalysisForm() {
+export function AnalysisForm({ directCheckout = false }: { directCheckout?: boolean }) {
   const [step, setStep] = useState(1)
 
   // Step 1
@@ -953,6 +967,7 @@ export function AnalysisForm() {
         userNightlyPrice={isNaN(userNightlyPrice as number) ? null : userNightlyPrice}
         acquisitionPrice={isNaN(acquisitionPrice as number) ? null : acquisitionPrice}
         formDataKey={formDataKey}
+        directCheckout={directCheckout}
       />
     )
   }
