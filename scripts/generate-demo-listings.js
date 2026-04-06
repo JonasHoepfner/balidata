@@ -12,33 +12,34 @@ const OUT_PATH = path.join(__dirname, '..', 'public', 'data', 'demo-listings.jso
 // ── Zone definitions ───────────────────────────────────────────────────────
 // Chaque zone a une bbox, un poids de densité, et une fourchette de prix
 
+// Bbox corrigée : lon >= 115.125 pour éviter les listings en mer
 const ZONES = [
   {
     name: 'Canggu',
     weight: 40,          // ~40% des listings
-    lon: [115.128, 115.155],
-    lat: [-8.668, -8.650],
+    lon: [115.130, 115.158],
+    lat: [-8.668, -8.638],
     priceRange: [150, 450],
   },
   {
     name: 'Berawa',
     weight: 30,          // ~30%
-    lon: [115.148, 115.175],
-    lat: [-8.672, -8.652],
+    lon: [115.152, 115.185],
+    lat: [-8.672, -8.640],
     priceRange: [120, 380],
   },
   {
     name: 'Batu Bolong',
     weight: 20,          // ~20%
-    lon: [115.118, 115.140],
-    lat: [-8.672, -8.658],
+    lon: [115.130, 115.150],
+    lat: [-8.672, -8.655],
     priceRange: [100, 300],
   },
   {
     name: 'Pererenan',
     weight: 10,          // ~10% — plus clairsemé
-    lon: [115.100, 115.128],
-    lat: [-8.668, -8.630],
+    lon: [115.125, 115.135],
+    lat: [-8.660, -8.630],
     priceRange: [80, 220],
   },
 ]

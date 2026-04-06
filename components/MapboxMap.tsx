@@ -28,13 +28,12 @@ export type ZonageFeature = {
 }
 
 export type SidebarContent =
-  | { type: 'listing'; listing: Listing }
   | { type: 'zone'; feature: ZonageFeature }
   | { type: 'estimate'; lng: number; lat: number; estimatedRevenue: number | null }
   | null
 
 export type Filters = {
-  bedrooms: number[]   // empty = all
+  bedrooms: number[]
   priceMin: number
   priceMax: number
 }
@@ -49,6 +48,7 @@ interface Props {
   listings: Listing[]
   filters: Filters
   layers: Layers
+  onListingClick: (listing: Listing) => void
   onSidebarChange: (content: SidebarContent) => void
   onStatsChange: (stats: { count: number; medianPrice: number; medianRevenue: number; avgOccupancy: number }) => void
 }
@@ -70,7 +70,7 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-function buildFilter(filters: Filters) {
+function buildFilter(filters: Filters): mapboxgl.Expression {
   const conditions: mapboxgl.Expression[] = [['==', ['get', 'type'], 'listing']]
   if (filters.bedrooms.length > 0) {
     conditions.push(['in', ['get', 'bedrooms'], ['literal', filters.bedrooms]])
@@ -104,22 +104,36 @@ function listingsToGeoJSON(listings: Listing[]): GeoJSON.FeatureCollection {
   }
 }
 
+// ── Zone color expression ──────────────────────────────────────────────────
+// Uses Mapbox match expression on zone_type property
+
+const ZONE_COLOR_EXPR: mapboxgl.Expression = [
+  'match', ['get', 'zone_type'],
+  ['farmland', 'orchard', 'meadow', 'grass', 'greenfield'], '#4CAF50',
+  ['commercial', 'retail'], '#FF8C00',
+  ['brownfield', 'construction'], '#888888',
+  'beach', '#4A9FE8',
+  'residential', '#FFD700',
+  '#666666',
+] as mapboxgl.Expression
+
 // ── Component ──────────────────────────────────────────────────────────────
 
-export default function MapboxMap({ listings, filters, layers, onSidebarChange, onStatsChange }: Props) {
+export default function MapboxMap({ listings, filters, layers, onListingClick, onSidebarChange, onStatsChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef       = useRef<mapboxgl.Map | null>(null)
   const initialized  = useRef(false)
 
-  // Keep latest callbacks stable
-  const onSidebarRef = useRef(onSidebarChange)
-  const onStatsRef   = useRef(onStatsChange)
-  const listingsRef  = useRef(listings)
-  useEffect(() => { onSidebarRef.current = onSidebarChange }, [onSidebarChange])
-  useEffect(() => { onStatsRef.current   = onStatsChange   }, [onStatsChange])
-  useEffect(() => { listingsRef.current  = listings        }, [listings])
+  const onListingRef  = useRef(onListingClick)
+  const onSidebarRef  = useRef(onSidebarChange)
+  const onStatsRef    = useRef(onStatsChange)
+  const listingsRef   = useRef(listings)
+  useEffect(() => { onListingRef.current  = onListingClick  }, [onListingClick])
+  useEffect(() => { onSidebarRef.current  = onSidebarChange }, [onSidebarChange])
+  useEffect(() => { onStatsRef.current    = onStatsChange   }, [onStatsChange])
+  useEffect(() => { listingsRef.current   = listings        }, [listings])
 
-  // ── Stats recalculation ──────────────────────────────────────────────────
+  // ── Stats ─────────────────────────────────────────────────────────────────
 
   const recalcStats = useCallback(() => {
     const map = mapRef.current
@@ -147,18 +161,18 @@ export default function MapboxMap({ listings, filters, layers, onSidebarChange, 
     })
   }, [filters])
 
-  // ── Init map ─────────────────────────────────────────────────────────────
+  // ── Init ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!containerRef.current || initialized.current) return
     initialized.current = true
 
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
+    const token = process.env.NEXT_PUBLIC_MAPTILER_KEY ?? ''
     mapboxgl.accessToken = token
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
+      style: `https://api.maptiler.com/maps/dataviz-dark/style.json?key=${token}`,
       center: [115.1366, -8.6478],
       zoom: 13,
       attributionControl: false,
@@ -174,38 +188,36 @@ export default function MapboxMap({ listings, filters, layers, onSidebarChange, 
     map.on('load', () => {
       const geojsonData = listingsToGeoJSON(listingsRef.current)
 
-      // ── Source: listings ──────────────────────────────────────────────
+      // Sources
       map.addSource('listings', { type: 'geojson', data: geojsonData })
-
-      // ── Source: zonage ────────────────────────────────────────────────
       map.addSource('zonage', { type: 'geojson', data: '/data/zonage-canggu.geojson' })
 
-      // ── Layer: zonage fill ────────────────────────────────────────────
+      // ── Zonage fill ───────────────────────────────────────────────────
       map.addLayer({
         id: 'zonage-fill',
         type: 'fill',
         source: 'zonage',
         layout: { visibility: 'none' },
         paint: {
-          'fill-color': ['case', ['==', ['get', 'str_compatible'], true], '#4CAF50', '#A32D2D'],
-          'fill-opacity': 0.22,
+          'fill-color': ZONE_COLOR_EXPR,
+          'fill-opacity': 0.25,
         },
       })
 
-      // ── Layer: zonage outline ─────────────────────────────────────────
+      // ── Zonage outline ────────────────────────────────────────────────
       map.addLayer({
         id: 'zonage-line',
         type: 'line',
         source: 'zonage',
         layout: { visibility: 'none' },
         paint: {
-          'line-color': ['case', ['==', ['get', 'str_compatible'], true], '#4CAF50', '#A32D2D'],
-          'line-opacity': 0.55,
+          'line-color': ZONE_COLOR_EXPR,
+          'line-opacity': 0.6,
           'line-width': 1,
         },
       })
 
-      // ── Layer: heatmap ────────────────────────────────────────────────
+      // ── Heatmap — adaptive radius & intensity by zoom ─────────────────
       map.addLayer({
         id: 'listings-heat',
         type: 'heatmap',
@@ -213,7 +225,20 @@ export default function MapboxMap({ listings, filters, layers, onSidebarChange, 
         layout: { visibility: 'none' },
         paint: {
           'heatmap-weight': ['interpolate', ['linear'], ['get', 'monthly_revenue'], 0, 0, 10000, 1],
-          'heatmap-radius': 30,
+          'heatmap-radius': [
+            'interpolate', ['linear'], ['zoom'],
+            11, 15,
+            13, 25,
+            15, 40,
+            17, 60,
+          ],
+          'heatmap-intensity': [
+            'interpolate', ['linear'], ['zoom'],
+            11, 0.4,
+            13, 0.6,
+            15, 0.9,
+            17, 1.2,
+          ],
           'heatmap-opacity': 0.7,
           'heatmap-color': [
             'interpolate', ['linear'], ['heatmap-density'],
@@ -226,21 +251,21 @@ export default function MapboxMap({ listings, filters, layers, onSidebarChange, 
         },
       })
 
-      // ── Layer: listing circles ────────────────────────────────────────
+      // ── Listing circles ───────────────────────────────────────────────
       map.addLayer({
         id: 'listings-circle',
         type: 'circle',
         source: 'listings',
-        layout: { visibility: 'none' },
+        layout: { visibility: 'visible' },
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 5, 15, 9],
           'circle-color': [
             'interpolate', ['linear'], ['get', 'monthly_revenue'],
-            0,    '#e53935',
-            3000, '#FF9800',
-            5000, '#FDD835',
-            7000, '#66BB6A',
-            10000,'#4CAF50',
+            0,     '#e53935',
+            3000,  '#FF9800',
+            5000,  '#FDD835',
+            7000,  '#66BB6A',
+            10000, '#4CAF50',
           ],
           'circle-stroke-width': 1.5,
           'circle-stroke-color': '#ffffff',
@@ -248,73 +273,70 @@ export default function MapboxMap({ listings, filters, layers, onSidebarChange, 
         },
       })
 
-      // ── Layer: hover circle ───────────────────────────────────────────
+      // ── Hover ring ────────────────────────────────────────────────────
       map.addLayer({
         id: 'listings-circle-hover',
         type: 'circle',
         source: 'listings',
-        layout: { visibility: 'none' },
+        layout: { visibility: 'visible' },
         filter: ['==', ['get', 'id'], -1],
         paint: {
-          'circle-radius': 13,
+          'circle-radius': 14,
           'circle-color': 'transparent',
           'circle-stroke-width': 2.5,
           'circle-stroke-color': '#C4A882',
         },
       })
 
-      // ── Interactions: listings ────────────────────────────────────────
+      // ── Hover interactions ────────────────────────────────────────────
       map.on('mouseenter', 'listings-circle', () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', 'listings-circle', () => {
         map.getCanvas().style.cursor = ''
         map.setFilter('listings-circle-hover', ['==', ['get', 'id'], -1])
-        if (layers.listings) map.setLayoutProperty('listings-circle-hover', 'visibility', 'visible')
       })
       map.on('mousemove', 'listings-circle', e => {
         if (!e.features?.length) return
-        const id = e.features[0].properties?.id
-        map.setFilter('listings-circle-hover', ['==', ['get', 'id'], id])
-        if (layers.listings) map.setLayoutProperty('listings-circle-hover', 'visibility', 'visible')
+        map.setFilter('listings-circle-hover', ['==', ['get', 'id'], e.features[0].properties?.id ?? -1])
       })
 
+      // ── Listing click → modal ─────────────────────────────────────────
       map.on('click', 'listings-circle', e => {
         if (!e.features?.length) return
         const p = e.features[0].properties
         if (!p) return
-        onSidebarRef.current({
-          type: 'listing',
-          listing: {
-            id: p.id,
-            latitude:        e.features[0].geometry.type === 'Point' ? (e.features[0].geometry as GeoJSON.Point).coordinates[1] : 0,
-            longitude:       e.features[0].geometry.type === 'Point' ? (e.features[0].geometry as GeoJSON.Point).coordinates[0] : 0,
-            price_per_night: p.price_per_night,
-            bedrooms:        p.bedrooms,
-            occupancy_rate:  p.occupancy_rate,
-            monthly_revenue: p.monthly_revenue,
-            title:           p.title,
-            zone:            p.zone,
-          },
+        const geom = e.features[0].geometry as GeoJSON.Point
+        onListingRef.current({
+          id:              p.id,
+          latitude:        geom.coordinates[1],
+          longitude:       geom.coordinates[0],
+          price_per_night: p.price_per_night,
+          bedrooms:        p.bedrooms,
+          occupancy_rate:  p.occupancy_rate,
+          monthly_revenue: p.monthly_revenue,
+          title:           p.title,
+          zone:            p.zone,
         })
       })
 
-      // ── Interactions: zonage ──────────────────────────────────────────
+      // ── Zonage interactions ───────────────────────────────────────────
       map.on('mouseenter', 'zonage-fill', () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', 'zonage-fill', () => { map.getCanvas().style.cursor = '' })
       map.on('click', 'zonage-fill', e => {
         if (!e.features?.length) return
         const p = e.features[0].properties
         if (!p) return
+        const strTypes = ['commercial', 'retail', 'beach']
+        const strCompatible = strTypes.includes(p.zone_type)
         onSidebarRef.current({
           type: 'zone',
-          feature: { properties: { zone_type: p.zone_type, zone_label: p.zone_label, str_compatible: p.str_compatible, name: p.name } },
+          feature: { properties: { zone_type: p.zone_type, zone_label: p.zone_label ?? p.zone_type, str_compatible: strCompatible, name: p.name } },
         })
       })
 
-      // ── Interactions: empty click ─────────────────────────────────────
+      // ── Empty click → estimate ────────────────────────────────────────
       map.on('click', e => {
-        const features = map.queryRenderedFeatures(e.point, { layers: ['listings-circle', 'zonage-fill'] })
-        if (features.length > 0) return  // handled by specific handlers above
-
+        const hit = map.queryRenderedFeatures(e.point, { layers: ['listings-circle', 'zonage-fill'] })
+        if (hit.length > 0) return
         const { lng, lat } = e.lngLat
         const nearby2BR = listingsRef.current.filter(l =>
           l.bedrooms === 2 && haversineKm(lat, lng, l.latitude, l.longitude) <= 1
@@ -322,7 +344,6 @@ export default function MapboxMap({ listings, filters, layers, onSidebarChange, 
         const est = nearby2BR.length > 0
           ? Math.round(nearby2BR.reduce((s, l) => s + l.monthly_revenue, 0) / nearby2BR.length)
           : null
-
         onSidebarRef.current({ type: 'estimate', lng, lat, estimatedRevenue: est })
       })
 
@@ -333,7 +354,7 @@ export default function MapboxMap({ listings, filters, layers, onSidebarChange, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Sync layers visibility ────────────────────────────────────────────────
+  // ── Sync layers ───────────────────────────────────────────────────────────
 
   useEffect(() => {
     const map = mapRef.current
@@ -353,16 +374,12 @@ export default function MapboxMap({ listings, filters, layers, onSidebarChange, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
-    if (map.getLayer('listings-circle')) {
-      map.setFilter('listings-circle', buildFilter(filters))
-    }
-    if (map.getLayer('listings-heat')) {
-      map.setFilter('listings-heat', buildFilter(filters))
-    }
+    if (map.getLayer('listings-circle')) map.setFilter('listings-circle', buildFilter(filters))
+    if (map.getLayer('listings-heat'))   map.setFilter('listings-heat',   buildFilter(filters))
     recalcStats()
   }, [filters, recalcStats])
 
-  // ── Sync listings data ────────────────────────────────────────────────────
+  // ── Sync data ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const map = mapRef.current
