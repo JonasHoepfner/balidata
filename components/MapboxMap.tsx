@@ -1,0 +1,376 @@
+'use client'
+
+import { useEffect, useRef, useCallback } from 'react'
+import mapboxgl from 'mapbox-gl'
+import 'mapbox-gl/dist/mapbox-gl.css'
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+export type Listing = {
+  id: number
+  latitude: number
+  longitude: number
+  price_per_night: number
+  bedrooms: number
+  occupancy_rate: number
+  monthly_revenue: number
+  title: string
+  zone: string
+}
+
+export type ZonageFeature = {
+  properties: {
+    zone_type: string
+    zone_label: string
+    str_compatible: boolean
+    name?: string
+  }
+}
+
+export type SidebarContent =
+  | { type: 'listing'; listing: Listing }
+  | { type: 'zone'; feature: ZonageFeature }
+  | { type: 'estimate'; lng: number; lat: number; estimatedRevenue: number | null }
+  | null
+
+export type Filters = {
+  bedrooms: number[]   // empty = all
+  priceMin: number
+  priceMax: number
+}
+
+export type Layers = {
+  heatmap: boolean
+  listings: boolean
+  zonage: boolean
+}
+
+interface Props {
+  listings: Listing[]
+  filters: Filters
+  layers: Layers
+  onSidebarChange: (content: SidebarContent) => void
+  onStatsChange: (stats: { count: number; medianPrice: number; medianRevenue: number; avgOccupancy: number }) => void
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function median(arr: number[]) {
+  if (!arr.length) return 0
+  const s = [...arr].sort((a, b) => a - b)
+  const m = Math.floor(s.length / 2)
+  return s.length % 2 !== 0 ? s[m] : Math.round((s[m - 1] + s[m]) / 2)
+}
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function buildFilter(filters: Filters) {
+  const conditions: mapboxgl.Expression[] = [['==', ['get', 'type'], 'listing']]
+  if (filters.bedrooms.length > 0) {
+    conditions.push(['in', ['get', 'bedrooms'], ['literal', filters.bedrooms]])
+  }
+  if (filters.priceMin > 0) {
+    conditions.push(['>=', ['get', 'price_per_night'], filters.priceMin])
+  }
+  if (filters.priceMax > 0) {
+    conditions.push(['<=', ['get', 'price_per_night'], filters.priceMax])
+  }
+  return ['all', ...conditions] as mapboxgl.Expression
+}
+
+function listingsToGeoJSON(listings: Listing[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: listings.map(l => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [l.longitude, l.latitude] },
+      properties: {
+        type: 'listing',
+        id: l.id,
+        title: l.title,
+        zone: l.zone,
+        price_per_night: l.price_per_night,
+        bedrooms: l.bedrooms,
+        occupancy_rate: l.occupancy_rate,
+        monthly_revenue: l.monthly_revenue,
+      },
+    })),
+  }
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
+
+export default function MapboxMap({ listings, filters, layers, onSidebarChange, onStatsChange }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef       = useRef<mapboxgl.Map | null>(null)
+  const initialized  = useRef(false)
+
+  // Keep latest callbacks stable
+  const onSidebarRef = useRef(onSidebarChange)
+  const onStatsRef   = useRef(onStatsChange)
+  const listingsRef  = useRef(listings)
+  useEffect(() => { onSidebarRef.current = onSidebarChange }, [onSidebarChange])
+  useEffect(() => { onStatsRef.current   = onStatsChange   }, [onStatsChange])
+  useEffect(() => { listingsRef.current  = listings        }, [listings])
+
+  // ── Stats recalculation ──────────────────────────────────────────────────
+
+  const recalcStats = useCallback(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const bounds = map.getBounds()
+    if (!bounds) return
+
+    const visible = listingsRef.current.filter(l => {
+      const inBounds = l.longitude >= bounds.getWest() && l.longitude <= bounds.getEast()
+        && l.latitude >= bounds.getSouth() && l.latitude <= bounds.getNorth()
+      if (!inBounds) return false
+      if (filters.bedrooms.length > 0 && !filters.bedrooms.includes(l.bedrooms)) return false
+      if (filters.priceMin > 0 && l.price_per_night < filters.priceMin) return false
+      if (filters.priceMax > 0 && l.price_per_night > filters.priceMax) return false
+      return true
+    })
+
+    onStatsRef.current({
+      count: visible.length,
+      medianPrice:   median(visible.map(l => l.price_per_night)),
+      medianRevenue: median(visible.map(l => l.monthly_revenue)),
+      avgOccupancy:  visible.length > 0
+        ? Math.round(visible.reduce((s, l) => s + l.occupancy_rate, 0) / visible.length * 100)
+        : 0,
+    })
+  }, [filters])
+
+  // ── Init map ─────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!containerRef.current || initialized.current) return
+    initialized.current = true
+
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
+    mapboxgl.accessToken = token
+
+    const map = new mapboxgl.Map({
+      container: containerRef.current,
+      style: 'mapbox://styles/mapbox/dark-v11',
+      center: [115.1366, -8.6478],
+      zoom: 13,
+      attributionControl: false,
+    })
+    mapRef.current = map
+
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right')
+    map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left')
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right')
+
+    map.on('moveend', recalcStats)
+
+    map.on('load', () => {
+      const geojsonData = listingsToGeoJSON(listingsRef.current)
+
+      // ── Source: listings ──────────────────────────────────────────────
+      map.addSource('listings', { type: 'geojson', data: geojsonData })
+
+      // ── Source: zonage ────────────────────────────────────────────────
+      map.addSource('zonage', { type: 'geojson', data: '/data/zonage-canggu.geojson' })
+
+      // ── Layer: zonage fill ────────────────────────────────────────────
+      map.addLayer({
+        id: 'zonage-fill',
+        type: 'fill',
+        source: 'zonage',
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': ['case', ['==', ['get', 'str_compatible'], true], '#4CAF50', '#A32D2D'],
+          'fill-opacity': 0.22,
+        },
+      })
+
+      // ── Layer: zonage outline ─────────────────────────────────────────
+      map.addLayer({
+        id: 'zonage-line',
+        type: 'line',
+        source: 'zonage',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': ['case', ['==', ['get', 'str_compatible'], true], '#4CAF50', '#A32D2D'],
+          'line-opacity': 0.55,
+          'line-width': 1,
+        },
+      })
+
+      // ── Layer: heatmap ────────────────────────────────────────────────
+      map.addLayer({
+        id: 'listings-heat',
+        type: 'heatmap',
+        source: 'listings',
+        layout: { visibility: 'none' },
+        paint: {
+          'heatmap-weight': ['interpolate', ['linear'], ['get', 'monthly_revenue'], 0, 0, 10000, 1],
+          'heatmap-radius': 30,
+          'heatmap-opacity': 0.7,
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0,   'rgba(10,10,40,0)',
+            0.2, '#1a237e',
+            0.5, '#C4A882',
+            0.8, '#66BB6A',
+            1,   '#4CAF50',
+          ],
+        },
+      })
+
+      // ── Layer: listing circles ────────────────────────────────────────
+      map.addLayer({
+        id: 'listings-circle',
+        type: 'circle',
+        source: 'listings',
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 5, 15, 9],
+          'circle-color': [
+            'interpolate', ['linear'], ['get', 'monthly_revenue'],
+            0,    '#e53935',
+            3000, '#FF9800',
+            5000, '#FDD835',
+            7000, '#66BB6A',
+            10000,'#4CAF50',
+          ],
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#ffffff',
+          'circle-opacity': 0.9,
+        },
+      })
+
+      // ── Layer: hover circle ───────────────────────────────────────────
+      map.addLayer({
+        id: 'listings-circle-hover',
+        type: 'circle',
+        source: 'listings',
+        layout: { visibility: 'none' },
+        filter: ['==', ['get', 'id'], -1],
+        paint: {
+          'circle-radius': 13,
+          'circle-color': 'transparent',
+          'circle-stroke-width': 2.5,
+          'circle-stroke-color': '#C4A882',
+        },
+      })
+
+      // ── Interactions: listings ────────────────────────────────────────
+      map.on('mouseenter', 'listings-circle', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'listings-circle', () => {
+        map.getCanvas().style.cursor = ''
+        map.setFilter('listings-circle-hover', ['==', ['get', 'id'], -1])
+        if (layers.listings) map.setLayoutProperty('listings-circle-hover', 'visibility', 'visible')
+      })
+      map.on('mousemove', 'listings-circle', e => {
+        if (!e.features?.length) return
+        const id = e.features[0].properties?.id
+        map.setFilter('listings-circle-hover', ['==', ['get', 'id'], id])
+        if (layers.listings) map.setLayoutProperty('listings-circle-hover', 'visibility', 'visible')
+      })
+
+      map.on('click', 'listings-circle', e => {
+        if (!e.features?.length) return
+        const p = e.features[0].properties
+        if (!p) return
+        onSidebarRef.current({
+          type: 'listing',
+          listing: {
+            id: p.id,
+            latitude:        e.features[0].geometry.type === 'Point' ? (e.features[0].geometry as GeoJSON.Point).coordinates[1] : 0,
+            longitude:       e.features[0].geometry.type === 'Point' ? (e.features[0].geometry as GeoJSON.Point).coordinates[0] : 0,
+            price_per_night: p.price_per_night,
+            bedrooms:        p.bedrooms,
+            occupancy_rate:  p.occupancy_rate,
+            monthly_revenue: p.monthly_revenue,
+            title:           p.title,
+            zone:            p.zone,
+          },
+        })
+      })
+
+      // ── Interactions: zonage ──────────────────────────────────────────
+      map.on('mouseenter', 'zonage-fill', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'zonage-fill', () => { map.getCanvas().style.cursor = '' })
+      map.on('click', 'zonage-fill', e => {
+        if (!e.features?.length) return
+        const p = e.features[0].properties
+        if (!p) return
+        onSidebarRef.current({
+          type: 'zone',
+          feature: { properties: { zone_type: p.zone_type, zone_label: p.zone_label, str_compatible: p.str_compatible, name: p.name } },
+        })
+      })
+
+      // ── Interactions: empty click ─────────────────────────────────────
+      map.on('click', e => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['listings-circle', 'zonage-fill'] })
+        if (features.length > 0) return  // handled by specific handlers above
+
+        const { lng, lat } = e.lngLat
+        const nearby2BR = listingsRef.current.filter(l =>
+          l.bedrooms === 2 && haversineKm(lat, lng, l.latitude, l.longitude) <= 1
+        )
+        const est = nearby2BR.length > 0
+          ? Math.round(nearby2BR.reduce((s, l) => s + l.monthly_revenue, 0) / nearby2BR.length)
+          : null
+
+        onSidebarRef.current({ type: 'estimate', lng, lat, estimatedRevenue: est })
+      })
+
+      recalcStats()
+    })
+
+    return () => { map.remove(); mapRef.current = null; initialized.current = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Sync layers visibility ────────────────────────────────────────────────
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const set = (id: string, vis: boolean) => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis ? 'visible' : 'none')
+    }
+    set('listings-heat',         layers.heatmap)
+    set('listings-circle',       layers.listings)
+    set('listings-circle-hover', layers.listings)
+    set('zonage-fill',           layers.zonage)
+    set('zonage-line',           layers.zonage)
+  }, [layers])
+
+  // ── Sync filters ──────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    if (map.getLayer('listings-circle')) {
+      map.setFilter('listings-circle', buildFilter(filters))
+    }
+    if (map.getLayer('listings-heat')) {
+      map.setFilter('listings-heat', buildFilter(filters))
+    }
+    recalcStats()
+  }, [filters, recalcStats])
+
+  // ── Sync listings data ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    const src = map.getSource('listings') as mapboxgl.GeoJSONSource | undefined
+    if (src) src.setData(listingsToGeoJSON(listings))
+    recalcStats()
+  }, [listings, recalcStats])
+
+  return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+}

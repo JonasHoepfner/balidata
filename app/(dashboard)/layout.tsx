@@ -175,7 +175,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <NavLink href="/dashboard"                  label="Tableau de bord"    icon={<IconHome />} />
           <NavLink href="/dashboard/analyses"         label="Mes analyses"       icon={<IconDocument />} />
           <NavLink href="/dashboard/nouvelle-analyse" label="Nouvelle analyse"   icon={<IconPlus />} />
-          <NavLink href="/dashboard/carte"            label="Carte du marché"    icon={<IconMap />} badge="Bientôt" disabled />
+          <NavLink href="/dashboard/carte"            label="Carte du marché"    icon={<IconMap />} />
 
           <Divider />
 
