@@ -413,7 +413,40 @@ export default function CartePage() {
   const [hasComparableFilter, setHasComparableFilter] = useState(false)
 
   useEffect(() => {
-    fetch('/data/demo-listings.json').then(r => r.json()).then(setListings).catch(() => {})
+    fetch('/api/listings')
+      .then(r => r.json())
+      .then((rows: {
+        id: number
+        latitude: number
+        longitude: number
+        price_per_night_usd: number | null
+        bedrooms: number | null
+        title: string | null
+        zone: string | null
+        reviews_count: number | null
+        rating_overall: number | null
+      }[]) => {
+        const mapped: Listing[] = rows
+          .filter(r => r.price_per_night_usd != null)
+          .map(r => {
+            const price = r.price_per_night_usd!
+            // Normalize reviews_count (0–100+ reviews) into occupancy proxy 0.45–0.85
+            const occ = Math.min(0.85, Math.max(0.45, 0.55 + Math.min(r.reviews_count ?? 0, 100) / 100 * 0.30))
+            return {
+              id:              r.id,
+              latitude:        r.latitude,
+              longitude:       r.longitude,
+              price_per_night: price,
+              bedrooms:        r.bedrooms ?? 1,
+              occupancy_rate:  occ,
+              monthly_revenue: Math.round(price * 0.65 * 30),
+              title:           r.title ?? 'Listing sans titre',
+              zone:            r.zone ?? 'Canggu',
+            }
+          })
+        setListings(mapped)
+      })
+      .catch(() => {})
   }, [])
 
   const priceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
