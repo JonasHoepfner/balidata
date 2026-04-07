@@ -49,6 +49,15 @@ function IconMap() {
   )
 }
 
+function IconHomestar() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M2 6.5L8 2l6 4.5V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6.5Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" fill="none"/>
+      <path d="M8 6l.5 1.2H10l-1 .8.4 1.2L8 8.6l-1.4.6.4-1.2-1-.8h1.5L8 6Z" stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round" fill="none"/>
+    </svg>
+  )
+}
+
 function IconCard() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -175,6 +184,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <NavLink href="/dashboard"                  label="Tableau de bord"    icon={<IconHome />} />
           <NavLink href="/dashboard/analyses"         label="Mes analyses"       icon={<IconDocument />} />
           <NavLink href="/dashboard/nouvelle-analyse" label="Nouvelle analyse"   icon={<IconPlus />} />
+          <NavLink href="/dashboard/properties"       label="My Properties"      icon={<IconHomestar />} />
           <NavLink href="/dashboard/carte"            label="Carte du marché"    icon={<IconMap />} />
 
           <Divider />

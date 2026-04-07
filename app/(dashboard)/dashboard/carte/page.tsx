@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import type { Listing, SidebarContent, Filters, Layers } from '@/components/MapboxMap'
 
-const MapboxMap = dynamic(() => import('@/components/MapboxMap'), { ssr: false })
+const MapboxMap      = dynamic(() => import('@/components/MapboxMap'), { ssr: false })
+const PropertyModal  = dynamic(() => import('@/components/PropertyModal'), { ssr: false })
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -105,12 +106,16 @@ function ListingModal({
   allListings,
   onClose,
   onFilterComparables,
+  portfolioTitles,
 }: {
   listing: Listing
   allListings: Listing[]
   onClose: () => void
   onFilterComparables: (listing: Listing) => void
+  portfolioTitles: Set<string>
 }) {
+  const [showAddModal, setShowAddModal] = useState(false)
+  const inPortfolio = portfolioTitles.has(listing.title)
   const [expanded, setExpanded] = useState(false)
 
   // Escape to close
@@ -289,22 +294,52 @@ function ListingModal({
           )}
 
           {/* Buttons */}
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={() => { onFilterComparables(listing); onClose() }}
-              style={{ flex: 2, padding: '11px', borderRadius: 50, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #C4A882, #8B6F47)', color: '#0A0A0A', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-outfit)' }}
-            >
-              Voir les comparables →
-            </button>
-            <button
-              onClick={onClose}
-              style={{ flex: 1, padding: '11px', borderRadius: 50, border: '1px solid #2A2A2A', background: 'transparent', color: '#7A7168', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-outfit)' }}
-            >
-              Fermer
-            </button>
+          <div style={{ display: 'flex', gap: 10, flexDirection: 'column' }}>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => { onFilterComparables(listing); onClose() }}
+                style={{ flex: 2, padding: '11px', borderRadius: 50, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #C4A882, #8B6F47)', color: '#0A0A0A', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-outfit)' }}
+              >
+                Voir les comparables →
+              </button>
+              <button
+                onClick={onClose}
+                style={{ flex: 1, padding: '11px', borderRadius: 50, border: '1px solid #2A2A2A', background: 'transparent', color: '#7A7168', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-outfit)' }}
+              >
+                Fermer
+              </button>
+            </div>
+            {/* Portfolio button */}
+            {inPortfolio ? (
+              <div style={{ textAlign: 'center', fontFamily: 'var(--font-dm-mono)', fontSize: 10, color: '#4ADE80', letterSpacing: '0.06em', padding: '6px 0' }}>
+                ✓ In your portfolio
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAddModal(true)}
+                style={{ width: '100%', padding: '10px', borderRadius: 50, border: '1px solid rgba(196,168,130,0.3)', background: 'transparent', color: '#C4A882', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-outfit)', transition: 'all 0.15s' }}
+              >
+                + Add to My Properties
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* PropertyModal pre-filled from listing */}
+      {showAddModal && (
+        <PropertyModal
+          mode="create"
+          initial={{
+            title:               listing.title,
+            zone:                listing.zone,
+            bedrooms:            listing.bedrooms,
+            current_price_night: listing.price_per_night,
+          }}
+          onClose={() => setShowAddModal(false)}
+          onSaved={() => setShowAddModal(false)}
+        />
+      )}
     </>
   )
 }
@@ -411,6 +446,17 @@ export default function CartePage() {
   const [priceMin,         setPriceMin]         = useState('')
   const [priceMax,         setPriceMax]         = useState('')
   const [hasComparableFilter, setHasComparableFilter] = useState(false)
+  const [portfolioTitles,  setPortfolioTitles]  = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    fetch('/api/properties')
+      .then(r => r.json())
+      .then(data => {
+        const titles = new Set<string>((data.properties ?? []).map((p: { title: string }) => p.title))
+        setPortfolioTitles(titles)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     fetch('/api/listings')
@@ -606,6 +652,7 @@ export default function CartePage() {
             allListings={listings}
             onClose={() => setSelectedListing(null)}
             onFilterComparables={handleFilterComparables}
+            portfolioTitles={portfolioTitles}
           />
         )}
       </div>
