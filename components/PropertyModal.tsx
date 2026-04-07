@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { AddressAutocomplete, type PlaceResult } from '@/components/AddressAutocomplete'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -61,11 +62,46 @@ const labelStyle: React.CSSProperties = {
   fontFamily: 'var(--font-dm-mono)',
 }
 
-function FieldGroup({ label, children }: { label: string; children: React.ReactNode }) {
+function FieldGroup({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 18 }}>
-      <label style={labelStyle}>{label}</label>
+      <div style={labelStyle}>{label}</div>
       {children}
+    </div>
+  )
+}
+
+function PriceInput({ value, onChange, placeholder }: {
+  value: number | null
+  onChange: (v: number | null) => void
+  placeholder?: string
+}) {
+  const [display, setDisplay] = useState(
+    value != null ? value.toLocaleString('en-US') : ''
+  )
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value.replace(/[^0-9]/g, '')
+    if (!raw) { setDisplay(''); onChange(null); return }
+    const num = parseInt(raw, 10)
+    setDisplay(num.toLocaleString('en-US'))
+    onChange(num)
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <span style={{
+        position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+        fontFamily: 'var(--font-dm-mono)', fontSize: 13, color: '#4A4540', pointerEvents: 'none',
+      }}>$</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={display}
+        onChange={handleChange}
+        placeholder={placeholder ?? '0'}
+        style={{ ...inputStyle, paddingLeft: 24 }}
+      />
     </div>
   )
 }
@@ -253,36 +289,30 @@ export default function PropertyModal({ mode, initial, onClose, onSaved }: Prope
 
           {/* Address */}
           <FieldGroup label="Address (optional)">
-            <input
-              type="text"
+            <AddressAutocomplete
               value={form.address}
-              onChange={e => set('address', e.target.value)}
-              placeholder="Jl. Pantai Berawa No.12..."
-              style={inputStyle}
+              onChange={v => set('address', v)}
+              onSelect={useCallback((place: PlaceResult) => {
+                setForm(f => ({ ...f, address: place.label, latitude: place.lat, longitude: place.lng }))
+              }, [])}
             />
           </FieldGroup>
 
           {/* Current nightly rate */}
-          <FieldGroup label="Current nightly rate (USD) *">
-            <input
-              type="number"
-              value={form.current_price_night ?? ''}
-              onChange={e => set('current_price_night', e.target.value ? Number(e.target.value) : null)}
-              placeholder="ex. 180"
-              min={0}
-              style={inputStyle}
+          <FieldGroup label={<>CURRENT NIGHTLY RATE <span style={{ color: '#4A4540', fontWeight: 400 }}>$ USD</span></>}>
+            <PriceInput
+              value={form.current_price_night}
+              onChange={v => set('current_price_night', v)}
+              placeholder="0"
             />
           </FieldGroup>
 
           {/* Acquisition price */}
-          <FieldGroup label="Acquisition price (USD, optional)">
-            <input
-              type="number"
-              value={form.acquisition_price ?? ''}
-              onChange={e => set('acquisition_price', e.target.value ? Number(e.target.value) : null)}
-              placeholder="ex. 350000"
-              min={0}
-              style={inputStyle}
+          <FieldGroup label={<>ACQUISITION PRICE <span style={{ color: '#4A4540', fontWeight: 400 }}>$ USD</span></>}>
+            <PriceInput
+              value={form.acquisition_price}
+              onChange={v => set('acquisition_price', v)}
+              placeholder="0"
             />
           </FieldGroup>
 
