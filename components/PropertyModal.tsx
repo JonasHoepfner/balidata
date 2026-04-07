@@ -40,7 +40,6 @@ const PROPERTY_TYPES = ['Villa', 'Apartment', 'Guesthouse', 'Hotel'] as const
 const LEASE_TYPES    = ['Leasehold', 'Freehold'] as const
 const ACCEPTED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 const MAX_IMAGES     = 5
-const MAX_SIZE_MB    = 5
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 
@@ -108,37 +107,104 @@ function IconCamera() {
   )
 }
 
+// ── Image compression ─────────────────────────────────────────────────────
+
+function compressImage(file: File): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const MAX_WIDTH = 1920
+      let { width, height } = img
+      if (width > MAX_WIDTH) {
+        height = Math.round(height * MAX_WIDTH / width)
+        width = MAX_WIDTH
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width  = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { reject(new Error('Canvas not available')); return }
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(blob => {
+        if (!blob) { reject(new Error('Compression failed')); return }
+        const name = file.name.replace(/\.[^.]+$/, '') + '.jpg'
+        resolve(new File([blob], name, { type: 'image/jpeg' }))
+      }, 'image/jpeg', 0.82)
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')) }
+    img.src = url
+  })
+}
+
 // ── Photo upload section ──────────────────────────────────────────────────
 
+type PendingItem = {
+  id: string
+  preview: string      // object URL of original (for display)
+  file: File | null    // null while compressing
+  sizeKb: number       // 0 while compressing
+  compressing: boolean
+}
+
 type PhotoSectionProps = {
-  files: File[]
   existingUrls: string[]
   onFilesChange: (files: File[]) => void
   onRemoveExisting: (url: string) => void
+  onCompressingChange: (v: boolean) => void
   uploadError: string | null
 }
 
-function PhotoSection({ files, existingUrls, onFilesChange, onRemoveExisting, uploadError }: PhotoSectionProps) {
+function PhotoSection({ existingUrls, onFilesChange, onRemoveExisting, onCompressingChange, uploadError }: PhotoSectionProps) {
   const [dragging, setDragging] = useState(false)
+  const [items,    setItems]    = useState<PendingItem[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
+  const onFilesRef = useRef(onFilesChange)
+  const onCompRef  = useRef(onCompressingChange)
+  useEffect(() => { onFilesRef.current = onFilesChange }, [onFilesChange])
+  useEffect(() => { onCompRef.current  = onCompressingChange }, [onCompressingChange])
 
-  const totalCount = existingUrls.length + files.length
+  // Notify parent when items change
+  useEffect(() => {
+    const ready = items.filter(i => !i.compressing && i.file !== null).map(i => i.file!)
+    onFilesRef.current(ready)
+    onCompRef.current(items.some(i => i.compressing))
+  }, [items])
 
-  function validate(incoming: File[]): { valid: File[]; error: string | null } {
-    const valid: File[] = []
-    for (const f of incoming) {
-      if (!ACCEPTED_TYPES.includes(f.type)) continue
-      if (f.size > MAX_SIZE_MB * 1024 * 1024) continue
-      valid.push(f)
+  const totalCount = existingUrls.length + items.length
+
+  async function addFiles(incoming: File[]) {
+    const accepted = incoming.filter(f => ACCEPTED_TYPES.includes(f.type))
+    const room     = MAX_IMAGES - totalCount
+    const toAdd    = accepted.slice(0, room)
+    if (!toAdd.length) return
+
+    // Create pending placeholders immediately
+    const pending: PendingItem[] = toAdd.map(f => ({
+      id:          Math.random().toString(36).slice(2),
+      preview:     URL.createObjectURL(f),
+      file:        null,
+      sizeKb:      0,
+      compressing: true,
+    }))
+    setItems(prev => [...prev, ...pending])
+
+    // Compress each in sequence and update state
+    for (let i = 0; i < toAdd.length; i++) {
+      const id = pending[i].id
+      try {
+        const compressed = await compressImage(toAdd[i])
+        setItems(prev => prev.map(item =>
+          item.id === id
+            ? { ...item, file: compressed, sizeKb: Math.round(compressed.size / 1024), compressing: false }
+            : item
+        ))
+      } catch {
+        // Remove failed item
+        setItems(prev => prev.filter(item => item.id !== id))
+      }
     }
-    const room = MAX_IMAGES - totalCount
-    return { valid: valid.slice(0, room), error: null }
-  }
-
-  function addFiles(incoming: File[]) {
-    const { valid } = validate(incoming)
-    if (!valid.length) return
-    onFilesChange([...files, ...valid])
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -152,11 +218,13 @@ function PhotoSection({ files, existingUrls, onFilesChange, onRemoveExisting, up
     e.target.value = ''
   }
 
-  function removeNew(idx: number) {
-    onFilesChange(files.filter((_, i) => i !== idx))
+  function removeItem(id: string) {
+    setItems(prev => {
+      const item = prev.find(i => i.id === id)
+      if (item?.preview) URL.revokeObjectURL(item.preview)
+      return prev.filter(i => i.id !== id)
+    })
   }
-
-  const previews = files.map(f => URL.createObjectURL(f))
 
   return (
     <FieldGroup label="Property Photos">
@@ -172,7 +240,7 @@ function PhotoSection({ files, existingUrls, onFilesChange, onRemoveExisting, up
             border: `1px dashed ${dragging ? '#C4A882' : '#2A2A2A'}`,
             borderRadius: 8, padding: '28px 16px', cursor: 'pointer',
             textAlign: 'center', transition: 'border-color 0.15s',
-            marginBottom: (existingUrls.length + files.length) > 0 ? 12 : 0,
+            marginBottom: (existingUrls.length + items.length) > 0 ? 12 : 0,
           }}
         >
           <IconCamera />
@@ -180,27 +248,42 @@ function PhotoSection({ files, existingUrls, onFilesChange, onRemoveExisting, up
             Drag photos here or click to upload
           </div>
           <div style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 9, color: '#333' }}>
-            JPG, PNG, WEBP · Max {MAX_IMAGES} photos · {MAX_SIZE_MB}MB each
+            JPG, PNG, WEBP · Max {MAX_IMAGES} photos
           </div>
           <input ref={inputRef} type="file" accept={ACCEPTED_TYPES.join(',')} multiple style={{ display: 'none' }} onChange={handleInputChange} />
         </div>
       )}
 
       {/* Preview grid */}
-      {(existingUrls.length + files.length) > 0 && (
+      {(existingUrls.length + items.length) > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           {existingUrls.map(url => (
-            <div key={url} style={{ position: 'relative', aspectRatio: '1', borderRadius: 6, overflow: 'hidden', background: '#0A0A0A' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <div key={url} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', background: '#0A0A0A' }}>
+              <div style={{ aspectRatio: '1' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              </div>
               <button type="button" onClick={() => onRemoveExisting(url)} style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: '50%', background: 'rgba(0,0,0,0.7)', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>×</button>
             </div>
           ))}
-          {previews.map((src, i) => (
-            <div key={src} style={{ position: 'relative', aspectRatio: '1', borderRadius: 6, overflow: 'hidden', background: '#0A0A0A' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              <button type="button" onClick={() => removeNew(i)} style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: '50%', background: 'rgba(0,0,0,0.7)', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>×</button>
+          {items.map(item => (
+            <div key={item.id} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', background: '#0A0A0A' }}>
+              <div style={{ aspectRatio: '1', position: 'relative' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={item.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', filter: item.compressing ? 'brightness(0.4)' : 'none', transition: 'filter 0.3s' }} />
+                {item.compressing && (
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 8, color: '#C4A882', letterSpacing: '0.08em' }}>Compressing…</span>
+                  </div>
+                )}
+              </div>
+              {/* Size label */}
+              {!item.compressing && item.sizeKb > 0 && (
+                <div style={{ position: 'absolute', bottom: 4, left: 6, fontFamily: 'var(--font-dm-mono)', fontSize: 7, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.04em', pointerEvents: 'none' }}>
+                  {item.sizeKb >= 1024 ? `${(item.sizeKb / 1024).toFixed(1)} MB` : `${item.sizeKb} KB`}
+                </div>
+              )}
+              <button type="button" onClick={() => removeItem(item.id)} style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: '50%', background: 'rgba(0,0,0,0.7)', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>×</button>
             </div>
           ))}
         </div>
@@ -232,9 +315,10 @@ export default function PropertyModal({ mode, initial, onClose, onSaved }: Prope
   })
 
   // Images state
-  const [newFiles,      setNewFiles]      = useState<File[]>([])
-  const [existingUrls,  setExistingUrls]  = useState<string[]>(initial?.images ?? [])
-  const [uploadError,   setUploadError]   = useState<string | null>(null)
+  const [newFiles,      setNewFiles]        = useState<File[]>([])
+  const [existingUrls,  setExistingUrls]    = useState<string[]>(initial?.images ?? [])
+  const [uploadError,   setUploadError]     = useState<string | null>(null)
+  const [compressing,   setCompressing]     = useState(false)
 
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
@@ -356,10 +440,10 @@ export default function PropertyModal({ mode, initial, onClose, onSaved }: Prope
 
           {/* Photos */}
           <PhotoSection
-            files={newFiles}
             existingUrls={existingUrls}
             onFilesChange={setNewFiles}
             onRemoveExisting={url => setExistingUrls(u => u.filter(x => x !== url))}
+            onCompressingChange={setCompressing}
             uploadError={uploadError}
           />
 
@@ -455,8 +539,8 @@ export default function PropertyModal({ mode, initial, onClose, onSaved }: Prope
             <button type="button" onClick={onClose} style={{ flex: 1, padding: '12px', borderRadius: 50, border: '1px solid #2A2A2A', background: 'transparent', color: '#7A7168', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-outfit)' }}>
               Cancel
             </button>
-            <button type="submit" disabled={saving} style={{ flex: 2, padding: '12px', borderRadius: 50, border: 'none', cursor: saving ? 'default' : 'pointer', background: saving ? '#2A2A2A' : 'linear-gradient(135deg, #C4A882, #8B6F47)', color: saving ? '#555' : '#0A0A0A', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-outfit)', transition: 'all 0.2s' }}>
-              {saving ? 'Saving…' : 'Save property'}
+            <button type="submit" disabled={saving || compressing} style={{ flex: 2, padding: '12px', borderRadius: 50, border: 'none', cursor: (saving || compressing) ? 'default' : 'pointer', background: (saving || compressing) ? '#2A2A2A' : 'linear-gradient(135deg, #C4A882, #8B6F47)', color: (saving || compressing) ? '#555' : '#0A0A0A', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-outfit)', transition: 'all 0.2s' }}>
+              {compressing ? 'Compressing…' : saving ? 'Saving…' : 'Save property'}
             </button>
           </div>
 
