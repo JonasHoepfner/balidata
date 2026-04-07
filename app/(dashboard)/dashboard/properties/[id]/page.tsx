@@ -54,6 +54,7 @@ type Property = {
   longitude: number | null
   weekly_alerts: boolean
   last_recommendations: Recommendations | null
+  images: string[] | null
   created_at: string
 }
 
@@ -201,6 +202,16 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
 
   return (
     <div style={{ padding: '40px 48px', maxWidth: 820 }}>
+
+      {/* Image gallery */}
+      {property.images && property.images.length > 0 && (
+        <div style={{ marginBottom: 28, overflowX: 'auto', display: 'flex', gap: 10, paddingBottom: 4 }}>
+          {property.images.map((url, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={i} src={url} alt="" style={{ width: 240, height: 180, objectFit: 'cover', borderRadius: 8, flexShrink: 0, display: 'block' }} />
+          ))}
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ marginBottom: 32 }}>
@@ -429,6 +440,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             latitude:            property.latitude ?? undefined,
             longitude:           property.longitude ?? undefined,
             weekly_alerts:       property.weekly_alerts,
+            images:              property.images ?? [],
           }}
           onClose={() => setShowEdit(false)}
           onSaved={load}

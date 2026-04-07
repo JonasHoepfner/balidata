@@ -152,7 +152,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const allowed = [
     'title', 'address', 'zone', 'property_type', 'bedrooms',
     'current_price_night', 'acquisition_price', 'lease_type',
-    'lease_duration', 'latitude', 'longitude', 'weekly_alerts',
+    'lease_duration', 'latitude', 'longitude', 'weekly_alerts', 'images',
   ]
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const key of allowed) {

@@ -28,6 +28,7 @@ type Property = {
   current_price_night: number | null
   weekly_alerts: boolean
   created_at: string
+  images: string[] | null
   metrics: Metrics | null
 }
 
@@ -71,17 +72,36 @@ function PropertyCard({ property, onView }: { property: Property; onView: () => 
   const score = m?.score ?? null
   const variance = m?.variancePct ?? null
 
+  const coverImage = property.images?.[0] ?? null
+
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         background: '#111', border: hovered ? '1px solid #C4A882' : '1px solid #1E1E1E',
-        borderRadius: 14, padding: 24, display: 'flex', flexDirection: 'column', gap: 16,
+        borderRadius: 14, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 0,
         transition: 'border-color 200ms', cursor: 'pointer',
       }}
       onClick={onView}
     >
+      {/* Cover image / placeholder */}
+      <div style={{ height: 160, background: '#161616', flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
+        {coverImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={coverImage} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+              <path d="M3 9.5L12 3l9 6.5V21a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5Z" stroke="#2A2A2A" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
+              <path d="M9 22V13h6v9" stroke="#2A2A2A" strokeWidth="1.5" strokeLinejoin="round"/>
+            </svg>
+          </div>
+        )}
+      </div>
+
+      {/* Card body */}
+      <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Header */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -161,6 +181,7 @@ function PropertyCard({ property, onView }: { property: Property; onView: () => 
       >
         View details →
       </button>
+      </div>{/* end card body */}
     </div>
   )
 }
