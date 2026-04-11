@@ -162,6 +162,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     : 'none (first snapshot)')
 
   // ── Insert snapshot ───────────────────────────────────────────────────────
+  const now = new Date()
+  const day = now.getDay()
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+  const weekStart = new Date(now.setDate(diff)).toISOString().split('T')[0]
+
   const insertPayload = {
     property_id:         id,
     user_id:             session.user.id,
@@ -173,6 +178,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     est_monthly_revenue: estMonthlyRevenue,
     recommended_price:   recommendedPrice,
     listings_count:      listingsCount,
+    week_start:          weekStart,
   }
   console.log('[snapshot] inserting into property_snapshots →', insertPayload)
 
