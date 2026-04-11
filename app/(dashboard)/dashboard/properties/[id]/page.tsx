@@ -405,15 +405,6 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             {property.zone && <div style={{ ...mono, fontSize: 10, color: '#C4A882', letterSpacing: '0.08em' }}>{property.zone}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
-            {needsSnapshot && (
-              <button
-                onClick={handleSnapshot}
-                disabled={snapshotting}
-                style={{ padding: '8px 16px', borderRadius: 50, border: '1px solid #2A2A2A', background: 'transparent', color: snapshotting ? '#555' : '#7A7168', fontSize: 11, cursor: snapshotting ? 'default' : 'pointer', ...outfit }}
-              >
-                {snapshotting ? 'Updating…' : '↺ Update metrics'}
-              </button>
-            )}
             <button onClick={() => setShowEdit(true)} style={{ padding: '9px 20px', borderRadius: 50, border: '1px solid #2A2A2A', background: 'transparent', color: '#C4A882', fontSize: 12, cursor: 'pointer', ...outfit }}>
               Edit
             </button>
@@ -422,6 +413,28 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             </button>
           </div>
         </div>
+      </div>
+
+      {/* ── Update metrics bar ──────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#0D0D0D', border: '1px solid #1E1E1E', borderRadius: 10, padding: '12px 18px', marginBottom: 20 }}>
+        <div>
+          <span style={{ ...mono, fontSize: 9, color: '#4A4540', letterSpacing: '0.1em' }}>LAST UPDATE — </span>
+          <span style={{ ...mono, fontSize: 9, color: '#3A3530' }}>
+            {property.last_snapshot_at
+              ? new Date(property.last_snapshot_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+              : 'Never'}
+          </span>
+          {needsSnapshot && (
+            <span style={{ ...mono, fontSize: 9, color: '#FB923C', marginLeft: 10 }}>— update recommended</span>
+          )}
+        </div>
+        <button
+          onClick={handleSnapshot}
+          disabled={snapshotting}
+          style={{ padding: '8px 18px', borderRadius: 50, border: 'none', cursor: snapshotting ? 'default' : 'pointer', background: snapshotting ? '#1A1A1A' : 'linear-gradient(135deg, #C4A882, #8B6F47)', color: snapshotting ? '#555' : '#0A0A0A', fontSize: 12, fontWeight: 700, ...outfit, transition: 'all 0.2s', flexShrink: 0 }}
+        >
+          {snapshotting ? 'Updating…' : '↺ Update metrics'}
+        </button>
       </div>
 
       {/* ── Alerts banner ───────────────────────────────────────────────────── */}
