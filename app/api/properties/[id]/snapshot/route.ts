@@ -184,7 +184,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const { data: snapshot, error: snapErr } = await supabaseAdmin
     .from('property_snapshots')
-    .insert(insertPayload)
+    .upsert(insertPayload, { onConflict: 'property_id,week_start' })
     .select()
     .single()
 
