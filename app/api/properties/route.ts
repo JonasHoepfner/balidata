@@ -63,12 +63,12 @@ export async function GET() {
 
   if (!properties?.length) return NextResponse.json({ properties: [] })
 
-  // Fetch zone stats for all relevant zones
+  // Fetch zone stats for all relevant zones (include bedrooms for filtered median)
   const zones = [...new Set(properties.map(p => p.zone).filter(Boolean))] as string[]
 
   const { data: allListings } = await supabaseAdmin
     .from('str_listings')
-    .select('zone, price_per_night_usd, reviews_count')
+    .select('zone, bedrooms, price_per_night_usd, reviews_count')
     .in('zone', zones)
     .not('price_per_night_usd', 'is', null)
 
@@ -84,41 +84,76 @@ export async function GET() {
     .sort((a, b) => a - b)
   const badungMedian = percentile(badungPrices, 0.5)
 
-  // Build zone metrics map
-  const zoneMetrics: Record<string, {
-    priceMedian: number; priceP25: number; priceP75: number
-    reviewsAvg: number; count: number; estMonthlyRevenue: number
-  }> = {}
+  // Build buckets: by zone only, and by zone+bedrooms
+  type ListingRow = { price: number; reviews: number | null }
+  const byZone: Record<string, ListingRow[]> = {}
+  const byZoneBedroom: Record<string, ListingRow[]> = {}
 
-  for (const zone of zones) {
-    const rows = (allListings ?? []).filter(r => r.zone === zone)
-    const prices = rows.map(r => r.price_per_night_usd as number).sort((a, b) => a - b)
-    const reviews = rows.map(r => r.reviews_count as number).filter(r => r != null)
-    const med = percentile(prices, 0.5)
-    zoneMetrics[zone] = {
-      priceMedian: med,
-      priceP25: percentile(prices, 0.25),
-      priceP75: percentile(prices, 0.75),
-      reviewsAvg: reviews.length ? reviews.reduce((a, b) => a + b, 0) / reviews.length : 0,
-      count: prices.length,
+  for (const r of (allListings ?? [])) {
+    const zone    = r.zone as string
+    const beds    = r.bedrooms as number | null
+    const price   = r.price_per_night_usd as number
+    const reviews = r.reviews_count as number | null
+
+    if (!byZone[zone]) byZone[zone] = []
+    byZone[zone].push({ price, reviews })
+
+    if (beds != null) {
+      const key = `${zone}:${beds}`
+      if (!byZoneBedroom[key]) byZoneBedroom[key] = []
+      byZoneBedroom[key].push({ price, reviews })
+    }
+  }
+
+  function buildMetrics(rows: ListingRow[]) {
+    const prices  = rows.map(r => r.price).sort((a, b) => a - b)
+    const reviews = rows.map(r => r.reviews).filter((r): r is number => r != null)
+    const med     = percentile(prices, 0.5)
+    return {
+      priceMedian:       med,
+      priceP25:          percentile(prices, 0.25),
+      priceP75:          percentile(prices, 0.75),
+      reviewsAvg:        reviews.length ? reviews.reduce((a, b) => a + b, 0) / reviews.length : 0,
+      count:             prices.length,
       estMonthlyRevenue: Math.round(med * 0.65 * 30),
     }
   }
 
+  const MIN_BEDROOM_COMPARABLES = 5
+
   const enriched = properties.map(p => {
-    const zm = p.zone ? (zoneMetrics[p.zone] ?? null) : null
+    const zone         = p.zone as string | null
+    const beds         = p.bedrooms as number | null
     const currentPrice = Number(p.current_price_night ?? 0)
+
+    let zm: ReturnType<typeof buildMetrics> | null = null
+    if (zone) {
+      // Try zone+bedrooms first if property has bedrooms set
+      if (beds != null) {
+        const key  = `${zone}:${beds}`
+        const rows = byZoneBedroom[key] ?? []
+        if (rows.length >= MIN_BEDROOM_COMPARABLES) {
+          zm = buildMetrics(rows)
+        }
+      }
+      // Fallback: all listings in the zone
+      if (!zm) {
+        const rows = byZone[zone] ?? []
+        if (rows.length > 0) zm = buildMetrics(rows)
+      }
+    }
+
     const priceMedian = zm?.priceMedian ?? 0
-    const variancePct = priceMedian > 0
+    const variancePct = priceMedian > 0 && currentPrice > 0
       ? Math.round(((currentPrice - priceMedian) / priceMedian) * 100)
       : null
     const score = zm && currentPrice > 0
       ? computeScore({
           currentPrice,
-          priceMedian: zm.priceMedian,
-          priceP25: zm.priceP25,
-          priceP75: zm.priceP75,
-          reviewsAvg: zm.reviewsAvg,
+          priceMedian:  zm.priceMedian,
+          priceP25:     zm.priceP25,
+          priceP75:     zm.priceP75,
+          reviewsAvg:   zm.reviewsAvg,
           badungMedian,
         })
       : null
@@ -126,15 +161,15 @@ export async function GET() {
     return {
       ...p,
       metrics: zm ? {
-        priceMedian: Math.round(zm.priceMedian),
-        priceP25: Math.round(zm.priceP25),
-        priceP75: Math.round(zm.priceP75),
-        reviewsAvg: Math.round(zm.reviewsAvg * 10) / 10,
-        listingsCount: zm.count,
+        priceMedian:       Math.round(zm.priceMedian),
+        priceP25:          Math.round(zm.priceP25),
+        priceP75:          Math.round(zm.priceP75),
+        reviewsAvg:        Math.round(zm.reviewsAvg * 10) / 10,
+        listingsCount:     zm.count,
         estMonthlyRevenue: zm.estMonthlyRevenue,
         variancePct,
         score,
-        estOccupancy: 65,
+        estOccupancy:      65,
       } : null,
     }
   })

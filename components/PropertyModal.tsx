@@ -345,20 +345,30 @@ export default function PropertyModal({ mode, initial, onClose, onSaved }: Prope
     if (!newFiles.length) return []
     const supabase = createSupabaseBrowserClient()
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return []
+    if (!session) {
+      console.error('[PropertyModal] uploadImages: no session')
+      return []
+    }
 
     const urls: string[] = []
     for (const file of newFiles) {
       const ext  = file.name.split('.').pop() ?? 'jpg'
       const name = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
       const path = `${session.user.id}/${propertyId}/${name}`
+      console.log('[PropertyModal] Uploading to path:', path, '— size:', file.size, 'bytes')
       const { error: upErr } = await supabase.storage
         .from('property-images')
         .upload(path, file, { cacheControl: '3600', upsert: false })
-      if (upErr) { setUploadError(`Upload failed: ${upErr.message}`); continue }
+      if (upErr) {
+        console.error('[PropertyModal] Upload failed:', upErr.message)
+        setUploadError(`Upload failed: ${upErr.message}`)
+        continue
+      }
       const { data } = supabase.storage.from('property-images').getPublicUrl(path)
+      console.log('[PropertyModal] Public URL:', data.publicUrl)
       urls.push(data.publicUrl)
     }
+    console.log('[PropertyModal] uploadImages done — uploaded', urls.length, '/', newFiles.length)
     return urls
   }
 
@@ -366,47 +376,74 @@ export default function PropertyModal({ mode, initial, onClose, onSaved }: Prope
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.title.trim())       { setError('Le nom de la propriété est requis.'); return }
+    if (!form.title.trim())        { setError('Le nom de la propriété est requis.'); return }
     if (!form.current_price_night) { setError('Le prix par nuit est requis.'); return }
     setSaving(true)
     setError(null)
     setUploadError(null)
 
     try {
-      const url    = mode === 'edit' && initial?.id ? `/api/properties/${initial.id}` : '/api/properties'
-      const method = mode === 'edit' ? 'PATCH' : 'POST'
+      const formBody = { ...form, property_type: form.property_type.toLowerCase() }
 
-      const res  = await fetch(url, {
-        method,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...form, property_type: form.property_type.toLowerCase() }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Erreur lors de la sauvegarde.'); return }
+      // ── EDIT MODE: upload images first, then PATCH everything in one request ─
+      if (mode === 'edit' && initial?.id) {
+        const propertyId = initial.id
+        let allImages = [...existingUrls]
 
-      const propertyId: string = data.property?.id ?? initial?.id
-      if (propertyId && newFiles.length > 0) {
-        const newUrls   = await uploadImages(propertyId)
-        const allImages = [...existingUrls, ...newUrls]
-        if (allImages.length > 0) {
-          await fetch(`/api/properties/${propertyId}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ images: allImages }),
-          })
+        if (newFiles.length > 0) {
+          console.log('[PropertyModal] edit — uploading', newFiles.length, 'new images before PATCH')
+          const newUrls = await uploadImages(propertyId)
+          allImages = [...existingUrls, ...newUrls]
         }
-      } else if (propertyId && existingUrls.length !== (initial?.images?.length ?? 0)) {
-        // Some existing images were removed
-        await fetch(`/api/properties/${propertyId}`, {
+
+        console.log('[PropertyModal] edit — PATCHing property, images:', allImages)
+        const res = await fetch(`/api/properties/${propertyId}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ images: existingUrls }),
+          body: JSON.stringify({ ...formBody, images: allImages }),
         })
+        const data = await res.json()
+        if (!res.ok) { setError(data.error ?? 'Erreur lors de la sauvegarde.'); return }
+        console.log('[PropertyModal] edit PATCH successful, property id:', data.property?.id)
+
+      // ── CREATE MODE: POST first → get id → upload → PATCH images ────────
+      } else {
+        console.log('[PropertyModal] create — POSTing new property')
+        const res = await fetch('/api/properties', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(formBody),
+        })
+        const data = await res.json()
+        if (!res.ok) { setError(data.error ?? 'Erreur lors de la sauvegarde.'); return }
+
+        const propertyId: string | null = data.property?.id ?? null
+        console.log('[PropertyModal] create — property created, id:', propertyId)
+
+        if (propertyId && newFiles.length > 0) {
+          console.log('[PropertyModal] create — uploading', newFiles.length, 'images')
+          const newUrls = await uploadImages(propertyId)
+          if (newUrls.length > 0) {
+            console.log('[PropertyModal] create — PATCHing images:', newUrls)
+            const imgRes = await fetch(`/api/properties/${propertyId}`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ images: newUrls }),
+            })
+            const imgData = await imgRes.json()
+            if (!imgRes.ok) {
+              console.error('[PropertyModal] image PATCH failed:', imgData.error)
+            } else {
+              console.log('[PropertyModal] image PATCH successful')
+            }
+          }
+        }
       }
 
       onSaved()
       onClose()
-    } catch {
+    } catch (err) {
+      console.error('[PropertyModal] submit error:', err)
       setError('Erreur réseau. Veuillez réessayer.')
     } finally {
       setSaving(false)
