@@ -63,6 +63,19 @@ export async function GET() {
 
   if (!properties?.length) return NextResponse.json({ properties: [] })
 
+  // Fetch unread alert counts for all properties in one query
+  const propertyIds = properties.map(p => p.id)
+  const { data: alertRows } = await supabaseAdmin
+    .from('property_alerts')
+    .select('property_id')
+    .in('property_id', propertyIds)
+    .eq('read', false)
+
+  const alertCountMap: Record<string, number> = {}
+  for (const row of (alertRows ?? [])) {
+    alertCountMap[row.property_id] = (alertCountMap[row.property_id] ?? 0) + 1
+  }
+
   // Fetch zone stats for all relevant zones (include bedrooms for filtered median)
   const zones = [...new Set(properties.map(p => p.zone).filter(Boolean))] as string[]
 
@@ -160,6 +173,7 @@ export async function GET() {
 
     return {
       ...p,
+      unread_alerts_count: alertCountMap[p.id] ?? 0,
       metrics: zm ? {
         priceMedian:       Math.round(zm.priceMedian),
         priceP25:          Math.round(zm.priceP25),
@@ -240,6 +254,15 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Trigger first snapshot in background (fire & forget)
+  if (data?.id) {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'
+    fetch(`${baseUrl}/api/properties/${data.id}/snapshot`, {
+      method: 'POST',
+      headers: { cookie: req.headers.get('cookie') ?? '' },
+    }).catch(err => console.error('[properties POST] snapshot trigger failed:', err))
+  }
 
   return NextResponse.json({ property: data }, { status: 201 })
 }

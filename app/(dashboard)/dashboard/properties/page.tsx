@@ -26,10 +26,14 @@ type Property = {
   property_type: string | null
   bedrooms: number | null
   current_price_night: number | null
+  recommended_price: number | null
+  current_score: number | null
+  last_snapshot_at: string | null
   weekly_alerts: boolean
   created_at: string
   images: string[] | null
   metrics: Metrics | null
+  unread_alerts_count: number
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -66,13 +70,20 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   )
 }
 
-function PropertyCard({ property, onView }: { property: Property; onView: () => void }) {
+function PropertyCard({ property, onView, onUpdateMetrics, updating }: {
+  property: Property
+  onView: () => void
+  onUpdateMetrics: () => void
+  updating: boolean
+}) {
   const [hovered, setHovered] = useState(false)
-  const m = property.metrics
-  const score = m?.score ?? null
+  const m        = property.metrics
+  const score    = m?.score ?? null
   const variance = m?.variancePct ?? null
-
   const coverImage = property.images?.[0] ?? null
+
+  const needsSnapshot = !property.last_snapshot_at ||
+    (Date.now() - new Date(property.last_snapshot_at).getTime() > 7 * 24 * 60 * 60 * 1000)
 
   return (
     <div
@@ -96,6 +107,12 @@ function PropertyCard({ property, onView }: { property: Property; onView: () => 
               <path d="M3 9.5L12 3l9 6.5V21a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5Z" stroke="#2A2A2A" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
               <path d="M9 22V13h6v9" stroke="#2A2A2A" strokeWidth="1.5" strokeLinejoin="round"/>
             </svg>
+          </div>
+        )}
+        {/* Alerts badge */}
+        {property.unread_alerts_count > 0 && (
+          <div style={{ position: 'absolute', top: 10, right: 10, background: '#EF4444', color: '#fff', fontFamily: 'var(--font-dm-mono)', fontSize: 9, fontWeight: 700, borderRadius: 50, padding: '2px 7px', letterSpacing: '0.04em' }}>
+            {property.unread_alerts_count} alert{property.unread_alerts_count > 1 ? 's' : ''}
           </div>
         )}
       </div>
@@ -129,10 +146,10 @@ function PropertyCard({ property, onView }: { property: Property; onView: () => 
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {[
-          { label: 'Prix / nuit', value: property.current_price_night ? `$${property.current_price_night}` : '—' },
-          { label: 'Prix médian marché', value: m?.priceMedian ? `$${m.priceMedian}` : '—' },
-          { label: 'Revenu mensuel est.', value: m?.estMonthlyRevenue ? `$${m.estMonthlyRevenue.toLocaleString()}` : '—' },
-          { label: 'Occupation estimée', value: m?.estOccupancy ? `${m.estOccupancy}%` : '—' },
+          { label: 'Price / night', value: property.current_price_night ? `$${property.current_price_night}` : '—' },
+          { label: 'Market median', value: m?.priceMedian ? `$${m.priceMedian}` : '—' },
+          { label: 'Est. monthly revenue', value: m?.estMonthlyRevenue ? `$${m.estMonthlyRevenue.toLocaleString()}` : '—' },
+          { label: 'Est. occupancy', value: m?.estOccupancy ? `${m.estOccupancy}%` : '—' },
         ].map(({ label, value }) => (
           <div key={label} style={{ background: '#0A0A0A', borderRadius: 8, padding: '10px 12px' }}>
             <div style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 7, color: '#4A4540', letterSpacing: '0.1em', marginBottom: 4 }}>{label.toUpperCase()}</div>
@@ -140,6 +157,16 @@ function PropertyCard({ property, onView }: { property: Property; onView: () => 
           </div>
         ))}
       </div>
+
+      {/* Recommended price (if different from current) */}
+      {property.recommended_price != null && property.recommended_price !== property.current_price_night && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 9, color: '#4A4540', letterSpacing: '0.08em' }}>RECOMMENDED</span>
+          <span style={{ fontFamily: 'var(--font-dm-mono)', fontSize: 11, color: (property.recommended_price > (property.current_price_night ?? 0)) ? '#4ADE80' : '#FB923C' }}>
+            ${property.recommended_price}/night {(property.recommended_price > (property.current_price_night ?? 0)) ? '↑' : '↓'}
+          </span>
+        </div>
+      )}
 
       {/* Score bar */}
       {score != null && (
@@ -174,13 +201,24 @@ function PropertyCard({ property, onView }: { property: Property; onView: () => 
         </div>
       )}
 
-      {/* CTA */}
-      <button
-        onClick={e => { e.stopPropagation(); onView() }}
-        style={{ width: '100%', padding: '11px', borderRadius: 50, border: '1px solid #2A2A2A', background: 'transparent', color: '#C4A882', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-outfit)', transition: 'all 0.15s' }}
-      >
-        View details →
-      </button>
+      {/* CTA row */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {needsSnapshot && (
+          <button
+            onClick={e => { e.stopPropagation(); onUpdateMetrics() }}
+            disabled={updating}
+            style={{ flex: 1, padding: '11px', borderRadius: 50, border: '1px solid #2A2A2A', background: 'transparent', color: updating ? '#555' : '#7A7168', fontSize: 11, cursor: updating ? 'default' : 'pointer', fontFamily: 'var(--font-dm-mono)', letterSpacing: '0.04em', transition: 'all 0.15s' }}
+          >
+            {updating ? 'Updating…' : '↺ Update metrics'}
+          </button>
+        )}
+        <button
+          onClick={e => { e.stopPropagation(); onView() }}
+          style={{ flex: 2, padding: '11px', borderRadius: 50, border: '1px solid #2A2A2A', background: 'transparent', color: '#C4A882', fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-outfit)', transition: 'all 0.15s' }}
+        >
+          View details →
+        </button>
+      </div>
       </div>{/* end card body */}
     </div>
   )
@@ -194,6 +232,7 @@ export default function PropertiesPage() {
   const [loading, setLoading]         = useState(true)
   const [showModal, setShowModal]     = useState(false)
   const [isAdmin, setIsAdmin]         = useState(false)
+  const [updatingId, setUpdatingId]   = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -211,6 +250,13 @@ export default function PropertiesPage() {
   useEffect(() => { load() }, [load])
 
   const atLimit = !isAdmin && properties.length >= 3
+
+  async function handleUpdateMetrics(propertyId: string) {
+    setUpdatingId(propertyId)
+    await fetch(`/api/properties/${propertyId}/snapshot`, { method: 'POST' })
+    await load()
+    setUpdatingId(null)
+  }
 
   if (loading) {
     return (
@@ -263,6 +309,8 @@ export default function PropertiesPage() {
               key={p.id}
               property={p}
               onView={() => router.push(`/dashboard/properties/${p.id}`)}
+              onUpdateMetrics={() => handleUpdateMetrics(p.id)}
+              updating={updatingId === p.id}
             />
           ))}
         </div>
