@@ -309,12 +309,18 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   async function handleGenerateRecos() {
     if (!property) return
     setGenLoading(true)
+    console.log('[handleGenerateRecos] POST /api/properties/' + id + '/recommend', {
+      priceMedian: metrics?.priceMedian,
+      variancePct: metrics?.variancePct,
+      score: metrics?.score,
+    })
     const res = await fetch(`/api/properties/${id}/recommend`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ priceMedian: metrics?.priceMedian, variancePct: metrics?.variancePct, score: metrics?.score }),
     })
     const data = await res.json()
+    console.log('[handleGenerateRecos] response status:', res.status, '— data:', data)
     if (res.ok && data.recommendations) {
       setProperty(p => p ? { ...p, last_recommendations: data.recommendations } : p)
       showToast('Recommendations generated')
